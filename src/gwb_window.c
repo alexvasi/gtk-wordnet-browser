@@ -1,4 +1,5 @@
 #include <wn.h>
+#include <strings.h>
 #include <glib.h>
 #include <glib/gi18n.h>
 
@@ -7,6 +8,8 @@
 
 G_DEFINE_TYPE(GwbWindow, gwb_window, GTK_TYPE_WINDOW);
 static const gint DEFAULT_SPACING = 6; /* where to get this value? */
+static const gint DEFAULT_INTEND = 30;
+static const gint DEFAULT_LINES_INTERVAL = 4;
 
 static void
 make_containers(GwbWindow *window)
@@ -18,6 +21,8 @@ make_containers(GwbWindow *window)
     gtk_box_pack_start(GTK_BOX(entry_box), window->entry, TRUE, TRUE, 0);
 
     scroll_box = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll_box),
+                                        GTK_SHADOW_IN);
     gtk_container_add(GTK_CONTAINER(scroll_box), window->text_view);
 
     main_box = gtk_vbox_new(FALSE, DEFAULT_SPACING);
@@ -29,11 +34,135 @@ make_containers(GwbWindow *window)
 }
 
 static void
+make_text_tags(GtkTextBuffer *buffer)
+{
+    gtk_text_buffer_create_tag(buffer, "header",
+                               "scale", 1.5,
+                               "pixels-below-lines", 10,
+                               "pixels-above-lines", DEFAULT_SPACING,
+                               "weight", PANGO_WEIGHT_BOLD,
+                               NULL);
+
+    gtk_text_buffer_create_tag(buffer, "highlighted",
+                               "weight", PANGO_WEIGHT_BOLD,
+                               NULL);
+
+    gtk_text_buffer_create_tag(buffer, "example",
+                               "style", PANGO_STYLE_ITALIC,
+                               NULL);
+}
+
+static void
+append_header(GtkTextIter *iter, const gchar *header)
+{
+    GtkTextBuffer *buffer;
+    GString *text;
+
+    text = g_string_new(header);
+    g_string_append_c(text, '\n');
+    text->str[0] = g_ascii_toupper(text->str[0]);
+
+    buffer = gtk_text_iter_get_buffer(iter);
+    gtk_text_buffer_insert_with_tags_by_name(buffer, iter, text->str, -1,
+                                             "header", NULL);
+
+    g_string_free(text, TRUE);
+}
+
+static void
+append_word(GtkTextIter *iter, const gchar *wn_word, gboolean highlight,
+            gboolean is_first)
+{
+    GtkTextBuffer *buffer;
+    gchar *word;
+
+    buffer = gtk_text_iter_get_buffer(iter);
+    word = g_strdup(wn_word);
+    g_strdelimit(word, "_", ' ');
+
+    if (!is_first) {
+        gtk_text_buffer_insert(buffer, iter, ", ", -1);
+    }
+
+    if (highlight) {
+        gtk_text_buffer_insert_with_tags_by_name(buffer, iter, word, -1,
+                                                 "highlighted", NULL);
+    }
+    else {
+        gtk_text_buffer_insert(buffer, iter, word, -1);
+    }
+}
+
+static void
+append_definition(GtkTextIter *iter, const gchar *wn_defn)
+{
+    GtkTextBuffer *buffer;
+    GString *text;
+    gchar *example;
+    const gchar *em_dash = " \xe2\x80\x94 ";
+
+    buffer = gtk_text_iter_get_buffer(iter);
+    text = g_string_new(wn_defn);
+    if (text->len)
+    {
+        gtk_text_buffer_insert(buffer, iter, em_dash, -1);
+
+        /* removing outer parentheses, if any */
+        if (text->str[0] == '(' && text->str[text->len-1] == ')') {
+            g_string_erase(text, 0, 1);
+            g_string_truncate(text, text->len -1);
+        }
+
+        example = index(text->str, ';');
+        if (example) {
+            gtk_text_buffer_insert(buffer, iter, text->str,
+                                   example-text->str);
+            gtk_text_buffer_insert_with_tags_by_name(buffer, iter, ++example,
+                                                     -1, "example", NULL);
+        }
+        else {
+            gtk_text_buffer_insert(buffer, iter, text->str, -1);
+        }
+    }
+    gtk_text_buffer_insert(buffer, iter, "\n", -1);
+    g_string_free(text, TRUE);
+}
+
+static void
+append_separator(GtkTextIter *iter)
+{
+    GtkTextBuffer *buffer;
+
+    buffer = gtk_text_iter_get_buffer(iter);
+    gtk_text_buffer_insert(buffer, iter, "\n", -1);
+}
+
+static void
+append_part_of_speech(GtkTextIter *iter, SynsetPtr synset)
+{
+    SynsetPtr curset;
+    int word;
+    gboolean highlight;
+
+    append_header(iter, partnames[*synset->ppos]);
+    for (curset = synset; curset; curset = curset->nextss)
+    {
+        for (word = 0; word < curset->wcount; ++word) {
+            highlight = (curset->whichword == word + 1);
+            append_word(iter, curset->words[word], highlight, word == 0);
+        }
+        append_definition(iter, curset->defn);
+    }
+}
+
+static void
 on_lookup_word(GtkWidget *sender, GwbWindow *window)
 {
-    gchar *keyword, *results;
+    gchar *keyword;
     GtkTextIter iter;
-    int pos; /* WordNet part of speech type */
+    int pos;
+    SynsetPtr synset;
+    gboolean is_first;
 
     keyword = g_strdup(gtk_entry_get_text(GTK_ENTRY(window->entry)));
     g_strstrip(keyword);
@@ -41,10 +170,21 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
 
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(window->text_buffer), "", -1);
     gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(window->text_buffer), &iter);
-    for (pos = 1; pos <= NUMPARTS; pos++) {
-        results = findtheinfo(keyword, pos, MAXSEARCH, ALLSENSES);
-        gtk_text_buffer_insert(GTK_TEXT_BUFFER(window->text_buffer),
-                               &iter, results, -1);
+
+    for (pos = 1, is_first=TRUE; pos <= NUMPARTS; ++pos)
+    {
+        synset = findtheinfo_ds(keyword, pos, MAXSEARCH, ALLSENSES);
+        if (synset)
+        {
+            if (is_first) {
+                is_first = FALSE;
+            }
+            else {
+                append_separator(&iter);
+            }
+            append_part_of_speech(&iter, synset);
+        }
+        free_syns(synset);
     }
 
     g_free(keyword);
@@ -64,8 +204,17 @@ gwb_window_init(GwbWindow *self)
 
     self->text_view = gtk_text_view_new();
     self->text_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(self->text_view));
+    make_text_tags(GTK_TEXT_BUFFER(self->text_buffer));
     gtk_text_view_set_editable(GTK_TEXT_VIEW(self->text_view), FALSE);
     gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(self->text_view), GTK_WRAP_WORD);
+    gtk_text_view_set_indent(GTK_TEXT_VIEW(self->text_view), -DEFAULT_INTEND);
+    gtk_text_view_set_pixels_below_lines(GTK_TEXT_VIEW(self->text_view),
+                                         DEFAULT_LINES_INTERVAL);
+    /* using default margins to make TextView inner padding */
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW (self->text_view),
+                                  DEFAULT_SPACING);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW (self->text_view),
+                                  DEFAULT_SPACING);
 
     make_containers(self);
 

@@ -23,7 +23,6 @@ libwordnet >= 3.0
 TODO
 ====
 
-* formatted output
 * shortcuts (CTR+L, CTR+Q) and menu
 * store window size hints
 * history?
