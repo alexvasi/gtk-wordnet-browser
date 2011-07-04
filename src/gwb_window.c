@@ -3,6 +3,7 @@
 #include <glib.h>
 #include <glib/gi18n.h>
 
+#include "config.h"
 #include "gwb_window.h"
 
 
@@ -10,6 +11,21 @@ G_DEFINE_TYPE(GwbWindow, gwb_window, GTK_TYPE_WINDOW);
 static const gint DEFAULT_SPACING = 6; /* where to get this value? */
 static const gint DEFAULT_INTEND = 30;
 static const gint DEFAULT_LINES_INTERVAL = 4;
+
+static void
+set_window_title(GwbWindow *w, gchar *subtitle)
+{
+    gchar *title;
+
+    if (subtitle && subtitle[0]) {
+        title = g_strdup_printf("%s - %s", subtitle, PACKAGE_NAME);
+        gtk_window_set_title(GTK_WINDOW(w), title);
+        g_free(title);
+    }
+    else {
+        gtk_window_set_title(GTK_WINDOW(w), PACKAGE_NAME);
+    }
+}
 
 static void
 make_text_tags(GtkTextBuffer *buffer)
@@ -144,6 +160,7 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
 
     keyword = g_strdup(gtk_entry_get_text(GTK_ENTRY(window->entry)));
     g_strstrip(keyword);
+    set_window_title(window, keyword);
     g_strdelimit(keyword, " ", '_'); /* WordNet likes underscores. */
 
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(window->text_buffer), "", -1);
@@ -296,6 +313,7 @@ gwb_window_dispose(GObject *obj)
 static void
 gwb_window_init(GwbWindow *self)
 {
+    set_window_title(self, NULL);
     make_menu_bar(self);
     make_widgets(self);
     make_containers(self);
