@@ -182,6 +182,11 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
         free_syns(synset);
     }
 
+    if (is_first) {
+        gtk_text_buffer_insert_with_tags_by_name(
+            window->text_buffer, &iter, "Not found", -1, "header", NULL);
+    }
+
     g_free(keyword);
 }
 
