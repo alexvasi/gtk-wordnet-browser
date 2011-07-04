@@ -12,28 +12,6 @@ static const gint DEFAULT_INTEND = 30;
 static const gint DEFAULT_LINES_INTERVAL = 4;
 
 static void
-make_containers(GwbWindow *window)
-{
-    GtkWidget *entry_box, *main_box, *scroll_box;
-
-    entry_box = gtk_hbox_new(FALSE, DEFAULT_SPACING);
-    gtk_box_pack_start(GTK_BOX(entry_box), window->lookup_btn, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(entry_box), window->entry, TRUE, TRUE, 0);
-
-    scroll_box = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll_box),
-                                        GTK_SHADOW_IN);
-    gtk_container_add(GTK_CONTAINER(scroll_box), window->text_view);
-
-    main_box = gtk_vbox_new(FALSE, DEFAULT_SPACING);
-    gtk_container_set_border_width(GTK_CONTAINER(main_box), DEFAULT_SPACING);
-    gtk_box_pack_start(GTK_BOX(main_box), entry_box, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(main_box), scroll_box, TRUE, TRUE, 0);
-    gtk_container_add(GTK_CONTAINER(window), main_box);
-    gtk_widget_show_all(main_box);
-}
-
-static void
 make_text_tags(GtkTextBuffer *buffer)
 {
     gtk_text_buffer_create_tag(buffer, "header",
@@ -191,31 +169,135 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
 }
 
 static void
-gwb_window_init(GwbWindow *self)
+on_quit(GtkAction *action, GwbWindow *window)
 {
-    self->entry = gtk_entry_new();
-    gtk_entry_set_activates_default(GTK_ENTRY(self->entry), TRUE);
+    gtk_widget_destroy(GTK_WIDGET(window));
+}
 
-    self->lookup_btn = gtk_button_new_with_label(_("Look up:"));
-    gtk_button_set_relief(GTK_BUTTON(self->lookup_btn), GTK_RELIEF_NONE);
-    gtk_widget_set_can_default(self->lookup_btn, TRUE);
-    g_signal_connect(self->lookup_btn, "clicked",
-                     G_CALLBACK(on_lookup_word), self);
+static void
+on_select_entry(GtkAction *action, GwbWindow *window)
+{
+    gtk_widget_grab_focus(window->entry);
+}
 
-    self->text_view = gtk_text_view_new();
-    self->text_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(self->text_view));
-    make_text_tags(GTK_TEXT_BUFFER(self->text_buffer));
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(self->text_view), FALSE);
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(self->text_view), GTK_WRAP_WORD);
-    gtk_text_view_set_indent(GTK_TEXT_VIEW(self->text_view), -DEFAULT_INTEND);
-    gtk_text_view_set_pixels_below_lines(GTK_TEXT_VIEW(self->text_view),
+static void
+make_menu_bar(GwbWindow *w)
+{
+    GError *error = NULL;
+    GtkAccelGroup *accel_group;
+
+    static const gchar *ui = 
+"<ui>                                   \
+  <menubar name='Menu'>                 \
+    <menu action='File'>                \
+      <menuitem action='Quit' />        \
+    </menu>                             \
+    <menu action='Edit'>                \
+      <menuitem action='SelectEntry' /> \
+    </menu>                             \
+  </menubar>                            \
+</ui>";
+
+    static const GtkActionEntry actions[] = {
+        {"File", NULL, "_File"},
+        {"Quit", NULL, "_Quit", "<control>Q", NULL, G_CALLBACK(on_quit)},
+
+        {"Edit", NULL, "_Edit"},
+        {"SelectEntry", NULL, "_Select lookup word", "<control>L", NULL,
+         G_CALLBACK(on_select_entry)}
+    };
+    w->action_group = gtk_action_group_new("Actions");
+    gtk_action_group_add_actions(w->action_group, actions,
+                                 G_N_ELEMENTS(actions), w);
+
+    w->ui_manager = gtk_ui_manager_new();
+    gtk_ui_manager_insert_action_group(w->ui_manager, w->action_group, 0);
+    accel_group = gtk_ui_manager_get_accel_group(w->ui_manager);
+    gtk_window_add_accel_group(GTK_WINDOW(w), accel_group);
+    if (gtk_ui_manager_add_ui_from_string(w->ui_manager, ui, -1, &error))
+    {
+        w->menu_bar = gtk_ui_manager_get_widget(w->ui_manager, "/Menu");
+    }
+    else
+    {
+        g_critical("Can't create main menu: %s", error->message);
+        g_error_free(error);
+        w->menu_bar = gtk_menu_bar_new();
+    }
+}
+
+static void
+make_widgets(GwbWindow *w)
+{
+    w->entry = gtk_entry_new();
+    gtk_entry_set_activates_default(GTK_ENTRY(w->entry), TRUE);
+
+    w->lookup_btn = gtk_button_new_with_label(_("Look up:"));
+    gtk_button_set_relief(GTK_BUTTON(w->lookup_btn), GTK_RELIEF_NONE);
+    gtk_widget_set_can_default(w->lookup_btn, TRUE);
+    g_signal_connect(w->lookup_btn, "clicked", G_CALLBACK(on_lookup_word), w);
+
+    w->text_view = gtk_text_view_new();
+    w->text_buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(w->text_view));
+    make_text_tags(GTK_TEXT_BUFFER(w->text_buffer));
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(w->text_view), FALSE);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(w->text_view), GTK_WRAP_WORD);
+    gtk_text_view_set_indent(GTK_TEXT_VIEW(w->text_view), -DEFAULT_INTEND);
+    gtk_text_view_set_pixels_below_lines(GTK_TEXT_VIEW(w->text_view),
                                          DEFAULT_LINES_INTERVAL);
     /* using default margins to make TextView inner padding */
-    gtk_text_view_set_left_margin(GTK_TEXT_VIEW (self->text_view),
-                                  DEFAULT_SPACING);
-    gtk_text_view_set_right_margin(GTK_TEXT_VIEW (self->text_view),
-                                  DEFAULT_SPACING);
+    gtk_text_view_set_left_margin(GTK_TEXT_VIEW(w->text_view), DEFAULT_SPACING);
+    gtk_text_view_set_right_margin(GTK_TEXT_VIEW(w->text_view), DEFAULT_SPACING);
+}
 
+static void
+make_containers(GwbWindow *window)
+{
+    GtkWidget *entry_box, *main_box, *scroll_box, *window_box;
+
+    entry_box = gtk_hbox_new(FALSE, DEFAULT_SPACING);
+    gtk_box_pack_start(GTK_BOX(entry_box), window->lookup_btn, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(entry_box), window->entry, TRUE, TRUE, 0);
+
+    scroll_box = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll_box),
+                                        GTK_SHADOW_IN);
+    gtk_container_add(GTK_CONTAINER(scroll_box), window->text_view);
+
+    main_box = gtk_vbox_new(FALSE, DEFAULT_SPACING);
+    gtk_container_set_border_width(GTK_CONTAINER(main_box), DEFAULT_SPACING);
+    gtk_box_pack_start(GTK_BOX(main_box), entry_box, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(main_box), scroll_box, TRUE, TRUE, 0);
+
+    window_box = gtk_vbox_new(FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(window_box), window->menu_bar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(window_box), main_box, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(window), window_box);
+    gtk_widget_show_all(window_box);
+}
+
+static void
+gwb_window_dispose(GObject *obj)
+{
+    GwbWindow *window = GWB_WINDOW(obj);
+
+    if (window->ui_manager) {
+        g_object_unref(window->ui_manager);
+        window->ui_manager = NULL;
+    }
+    if (window->action_group) {
+        g_object_unref(window->action_group);
+        window->action_group = NULL;
+    }
+
+    G_OBJECT_CLASS(gwb_window_parent_class)->dispose(obj);
+}
+
+static void
+gwb_window_init(GwbWindow *self)
+{
+    make_menu_bar(self);
+    make_widgets(self);
     make_containers(self);
 
     gtk_widget_grab_default(self->lookup_btn);
@@ -225,7 +307,7 @@ gwb_window_init(GwbWindow *self)
 static void
 gwb_window_class_init(GwbWindowClass *klass)
 {
-
+    G_OBJECT_CLASS(klass)->dispose = gwb_window_dispose;
 }
 
 GtkWidget*

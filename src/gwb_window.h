@@ -17,11 +17,14 @@ struct _GwbWindow
 {
     GtkWindow parent_instance;
 
+    GtkWidget *menu_bar;
     GtkWidget *entry;
     GtkWidget *lookup_btn;
     GtkWidget *text_view;
 
     GtkTextBuffer *text_buffer;
+    GtkUIManager *ui_manager;
+    GtkActionGroup *action_group;
 };
 
 struct _GwbWindowClass

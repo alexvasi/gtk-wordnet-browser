@@ -30,7 +30,7 @@ main(int argc, char *argv[])
     gtk_init(&argc, &argv);
 
     if (wninit()) {
-        /* Can't open WordNet database. */
+        g_critical("Can't open WordNet database.");
         return EXIT_FAILURE;
     }
     create_main_window();
