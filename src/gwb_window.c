@@ -88,15 +88,22 @@ append_word(GtkTextIter *iter, const gchar *wn_word, gboolean highlight,
 }
 
 static void
-append_definition(GtkTextIter *iter, const gchar *wn_defn)
+append_definition(GtkTextIter *iter, SynsetPtr synset)
 {
+    int word;
+    gboolean highlight;
     GtkTextBuffer *buffer;
     GString *text;
     gchar *example;
     const gchar *em_dash = " \xe2\x80\x94 ";
 
+    for (word = 0; word < synset->wcount; ++word) {
+        highlight = (synset->whichword == word + 1);
+        append_word(iter, synset->words[word], highlight, word == 0);
+    }
+
     buffer = gtk_text_iter_get_buffer(iter);
-    text = g_string_new(wn_defn);
+    text = g_string_new(synset->defn);
     if (text->len)
     {
         gtk_text_buffer_insert(buffer, iter, em_dash, -1);
@@ -131,22 +138,44 @@ append_separator(GtkTextIter *iter)
     gtk_text_buffer_insert(buffer, iter, "\n", -1);
 }
 
-static void
-append_part_of_speech(GtkTextIter *iter, SynsetPtr synset)
+static gboolean
+append_part_of_speech(GtkTextIter *iter, int pos, gchar *keyword)
 {
-    SynsetPtr curset;
-    int word;
-    gboolean highlight;
+    SynsetPtr synset, curset;
+    gboolean was_found = FALSE;
+    gchar *morphed;
 
-    append_header(iter, partnames[getpos(synset->pos)]);
-    for (curset = synset; curset; curset = curset->nextss)
+    synset = findtheinfo_ds(keyword, pos, MAXSEARCH, ALLSENSES);
+    if (synset)
     {
-        for (word = 0; word < curset->wcount; ++word) {
-            highlight = (curset->whichword == word + 1);
-            append_word(iter, curset->words[word], highlight, word == 0);
+        if (!was_found) {
+            was_found = TRUE;
+            append_header(iter, partnames[pos]);
         }
-        append_definition(iter, curset->defn);
+        for (curset = synset; curset; curset = curset->nextss) {
+            append_definition(iter, curset);
+        }
+        free_syns(synset);
     }
+
+    for (morphed = morphstr(keyword, pos);
+         morphed;
+         morphed = morphstr(NULL, pos))
+    {
+        synset = findtheinfo_ds(morphed, pos, MAXSEARCH, ALLSENSES);
+        if (synset) {
+            if (!was_found) {
+                was_found = TRUE;
+                append_header(iter, partnames[pos]);
+            }
+            for (curset = synset; curset; curset = curset->nextss) {
+                append_definition(iter, curset);
+            }
+            free_syns(synset);
+        }
+    }
+
+    return was_found;
 }
 
 static void
@@ -155,8 +184,7 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
     gchar *keyword;
     GtkTextIter iter;
     int pos;
-    SynsetPtr synset;
-    gboolean is_first;
+    gboolean was_found = FALSE;
 
     keyword = g_strdup(gtk_entry_get_text(GTK_ENTRY(window->entry)));
     g_strstrip(keyword);
@@ -166,23 +194,15 @@ on_lookup_word(GtkWidget *sender, GwbWindow *window)
     gtk_text_buffer_set_text(GTK_TEXT_BUFFER(window->text_buffer), "", -1);
     gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(window->text_buffer), &iter);
 
-    for (pos = 1, is_first=TRUE; pos <= NUMPARTS; ++pos)
+    for (pos = 1; pos <= NUMPARTS; ++pos)
     {
-        synset = findtheinfo_ds(keyword, pos, MAXSEARCH, ALLSENSES);
-        if (synset)
-        {
-            if (is_first) {
-                is_first = FALSE;
-            }
-            else {
-                append_separator(&iter);
-            }
-            append_part_of_speech(&iter, synset);
+        if (append_part_of_speech(&iter, pos, keyword)) {
+            was_found = TRUE;
+            append_separator(&iter);
         }
-        free_syns(synset);
     }
 
-    if (is_first) {
+    if (!was_found) {
         gtk_text_buffer_insert_with_tags_by_name(
             window->text_buffer, &iter, "Not found", -1, "header", NULL);
     }
