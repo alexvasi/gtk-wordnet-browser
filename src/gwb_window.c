@@ -138,7 +138,7 @@ append_part_of_speech(GtkTextIter *iter, SynsetPtr synset)
     int word;
     gboolean highlight;
 
-    append_header(iter, partnames[*synset->ppos]);
+    append_header(iter, partnames[getpos(synset->pos)]);
     for (curset = synset; curset; curset = curset->nextss)
     {
         for (word = 0; word < curset->wcount; ++word) {
